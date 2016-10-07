@@ -6,6 +6,10 @@ data Ast = Number Integer | Name String | App Ast [Ast] | Block [Ast] |
     Case Ast [Ast] | Bool Ast Ast Ast | Default | Set String Ast
     | Lambda String Ast | Function String Ast Context deriving (Eq,Show,Ord)
 
+isLambda :: Ast -> Bool
+isLambda (Lambda _ _) = True
+isLambda _ = False
+
 type Memory = (Integer, Integer -> Maybe Ast)
 
 emptyMem :: Memory
@@ -286,7 +290,8 @@ eval (Case test [sub1, sub2]) ctx mem =
     let (outcome, testctx, testmem) = eval test ctx mem
     in if outcome == (Number 1) then eval sub1 testctx testmem else eval sub2 testctx testmem
 eval (Set str ast) ctx mem =
-    let (exprval, exprctx, exprmem) = eval ast ctx mem
+    let (myctx, mymem) = if isLambda ast then setVar ctx mem str (Number 0) else (ctx, mem) -- Creates a dummy entry to enable self-reference, i.e. recursion (the dummy is overwritten before the reference happens)
+    in let (exprval, exprctx, exprmem) = eval ast myctx mymem
     in let (newctx, newmem) = setVar exprctx exprmem str exprval
     in (exprval, newctx, newmem)
 eval (Name name) ctx mem =
