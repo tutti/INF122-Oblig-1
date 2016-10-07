@@ -4,7 +4,10 @@ import Test.HUnit
 
 -- Her kan du legge til dine egne tester.
 
-mineEgeneTester = TestList []
+mineEgeneTester = TestList [
+  TestCase (assertEqual "Fibonacci 5 - 5" (Number 5) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (5);")),
+  TestCase (assertEqual "Fibonacci 10 - 55" (Number 55) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (10);")),
+  TestCase (assertEqual "Fibonacci 15 - 610" (Number 610) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (15);"))]
 
 -- Følgende tester må kjøre for å få en A.
 
