@@ -17,6 +17,9 @@ lookupMem (num, mem) n = mem n
 addToMem :: Memory -> Ast -> (Integer, Memory)
 addToMem (num, func) ast = (num, (num + 1, \n -> if n == num then Just ast else func n))
 
+modifyMem :: Memory -> Integer -> Ast -> (Integer, Memory)
+modifyMem (num, func) pos ast = (pos, (num, \n -> if n == pos then Just ast else func n))
+
 newtype Context = Context (String -> Maybe Integer)
 instance Show Context where
     show x = ""
@@ -33,17 +36,37 @@ instance Ord Context where
 emptyCtx :: Context
 emptyCtx = Context (const Nothing)
 
-setVar :: Context -> Memory -> String -> Ast -> (Context, Memory)
+setVar :: Context -> Memory -> String -> Ast -> (Context, Memory) -- Adds or updates a variable
 setVar (Context ctxfunc) mem varname value =
-    let (idx, newmem) = addToMem mem value
-    in (Context (\s -> if s == varname then Just idx else ctxfunc s), newmem)
+    let idx = ctxfunc varname
+    in 
+        if idx == Nothing
+        then -- Didn't have the variable, create new
+            let (newIdx, newmem) = addToMem mem value
+            in (Context (\s -> if s == varname then Just newIdx else ctxfunc s), newmem)
+        else -- Did have the variable, update value
+            let (Just i) = idx
+            in let (newIdx, newmem) = modifyMem mem i value
+            in ((Context ctxfunc), newmem)
 
-getVar :: Context -> Memory -> String -> Maybe Ast
+getVar :: Context -> Memory -> String -> Maybe Ast -- Gets the value of a variable
 getVar (Context ctxfunc) mem varname =
     let idx = ctxfunc varname
     in
         if idx == Nothing then Nothing
         else let (Just i) = idx in lookupMem mem i
+
+addVar :: Context -> Memory -> String -> Ast -> (Context, Memory) -- Adds a variable (even if it already exists)
+addVar (Context ctxfunc) mem varname value =
+    let (idx, newmem) = addToMem mem value
+    in (Context (\s -> if s == varname then Just idx else ctxfunc s), newmem)
+
+copyRef :: Context -> String -> Context -> String -> Context -- Copies a reference from one context to another (or to the same context)
+copyRef (Context origCtxfunc) origName (Context newCtxfunc) newName =
+    let origPos = origCtxfunc origName
+    in 
+        if origPos == Nothing then error "No such variable."
+        else Context (\s -> if s == newName then origPos else newCtxfunc s)
 
 chars = ['A'..'Z']++['a'..'z']
 
@@ -106,8 +129,6 @@ parseExpr s
     | isDigit (head (head s)) = (Number (read $ head s), tail s)
     | head s == "case" = parseCase s
     | head s == "set" = parseSet s
---    | head s == "lambda" = parseLambda s
---    | otherwise = parseVar s
     | otherwise =
         let (ast, xs) = if head s == "lambda" then parseLambda s else parseVar s
         in
@@ -223,18 +244,16 @@ eval (Block (blc:more)) ctx mem =
     let (blcast, blcctx, blcmem) = eval blc ctx mem
     in eval (Block more) blcctx blcmem
 eval (App (Name func) [(Name var)]) ctx mem =
-    let ((Function varname funcast funcctx), tempctx, tempmem) = eval (Name func) ctx mem
-    in let (val, tempctx, tempmem) = eval (Name var) ctx mem
-    in let (newast, newmem) = setVar ctx mem varname val
-    in let (refast, refctx, refmem) = eval funcast newast newmem
-    in let (Just refval) = getVar refctx refmem varname
-    in let (outctx, outmem) = setVar ctx mem var refval
-    in (refast, outctx, outmem)
+    let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem -- Look up the Function by the Name
+    in let inctx = copyRef ctx var funcctx varname -- Create a copy reference to the reference variable
+    in let (out, outctx, outmem) = eval funcast inctx mem -- Run the lambda, get the result and updated memory
+    in (out, ctx, outmem) -- Discard the updated context
 eval (App (Name func) [ast]) ctx mem =
-    let ((Function varname funcast funcctx), tempctx, tempmem) = eval (Name func) ctx mem
-    in let (val, tempctx, tempmem) = eval ast ctx mem
-    in let (newast, newmem) = setVar ctx mem varname val
-    in eval funcast newast newmem
+    let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem
+    in let (exprast, exprctx, exprmem) = eval ast ctx mem -- Evaluate the pass-by-value
+    in let (inctx, inmem) = addVar funcctx exprmem varname exprast -- Force creation of a new variable by this name
+    in let (out, outctx, outmem) = eval funcast inctx inmem
+    in (out, ctx, outmem)
 eval (App (Name func) [sub1, sub2]) ctx mem =
     let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
     in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
@@ -244,23 +263,15 @@ eval (App (Name func) [sub1, sub2]) ctx mem =
         else if func == "*" then (Number (num1 * num2), sub2ctx, sub2mem)
         else if func == "/" then (Number (num1 `div` num2), sub2ctx, sub2mem)
         else error "Bad AST"
-        --else
-        --    let ((Function vname, fnast, fnctx), fctnctx, fctnmem) = eval (Name func) ctx mem
-        --    --in (fctn, fctnctx, fctnmem) -- TODO NOT DONE
-        --    in let (tempctx, tempmem) = setVar fnctx mem vname 
 eval (App (Lambda lbdname lbdast) [(Name var)]) ctx mem = 
-    let (num, numctx, nummem) = eval (Name var) ctx mem
-    in let (tempctx, tempmem) = setVar ctx mem lbdname num
-    in let (out, outctx, outmem) = eval lbdast tempctx tempmem
-    in let (Just refval) = getVar outctx outmem lbdname
-    in let (refctx, refmem) = setVar ctx mem var refval
-    in (out, refctx, refmem)
-    --in (out, outctx, outmem)
+    let copyctx = copyRef ctx var ctx lbdname -- Create a copy reference to the reference variable
+    in let (out, outctx, outmem) = eval lbdast copyctx mem-- Run the lambda, keep the modified memory but discard the context
+    in (out, ctx, outmem)
 eval (App (Lambda lbdname lbdast) [appast]) ctx mem = 
-    let (num, numctx, nummem) = eval appast ctx mem
-    in let (tempctx, tempmem) = setVar ctx mem lbdname num
-    in let (out, outctx, outmem) = eval lbdast tempctx tempmem
-    in (out, ctx, mem)
+    let (exprast, exprctx, exprmem) = eval appast ctx mem -- Evaluate the pass-by-value
+    in let (copyctx, copymem) = addVar exprctx exprmem lbdname exprast -- Force creation of a new variable by this name
+    in let (out, outctx, outmem) = eval lbdast copyctx copymem -- Run the lambda, discarding the new context but keeping the result and memory
+    in (out, exprctx, outmem)
 eval (Bool (Name test) sub1 sub2) ctx mem =
     let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
     in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
@@ -286,7 +297,6 @@ eval (Name name) ctx mem =
             let (Just jval) = val
             in (jval, ctx, mem)
 eval (Lambda vname lambdaast) ctx mem = (Function vname lambdaast ctx, ctx, mem)
--- TODO eval Function
 
 eval ast ctx mem = error "Bad AST"
 
