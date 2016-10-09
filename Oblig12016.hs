@@ -10,6 +10,10 @@ isLambda :: Ast -> Bool
 isLambda (Lambda _ _) = True
 isLambda _ = False
 
+isNumber :: Ast -> Bool
+isNumber (Number _) = True
+isNumber _ = False
+
 type Memory = (Integer, Integer -> Maybe Ast)
 
 emptyMem :: Memory
@@ -301,14 +305,20 @@ eval (App (App subapp subast) [appast]) ctx mem =
     let (exprast, exprctx, exprmem) = eval (App subapp subast) ctx mem
     in eval (App exprast [appast]) ctx exprmem
 eval (Bool (Name test) sub1 sub2) ctx mem =
-    let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
-    in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
+    let (num1, sub1ctx, sub1mem) = eval sub1 ctx mem
+    in let (num2, sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
     in
+        --if and [isNumber n1, isNumber n2] then
+            --let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
+            --in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
+            --let (Number num1) = n1 in let (Number num2) = n2
+            --in
         if test == "==" then if num1 == num2 then (Number 1, sub2ctx, sub2mem) else (Number 0, sub2ctx, sub2mem)
         else if test == "!=" then if num1 == num2 then (Number 0, sub2ctx, sub2mem) else (Number 1, sub2ctx, sub2mem)
         else if test == "<" then if num1 < num2 then (Number 1, sub2ctx, sub2mem) else (Number 0, sub2ctx, sub2mem)
         else if test == ">" then if num1 > num2 then (Number 1, sub2ctx, sub2mem) else (Number 0, sub2ctx, sub2mem)
         else error "Program error: Unknown operator."
+        --else
 eval (Case Default [sub]) ctx mem = eval sub ctx mem
 eval (Case test [sub1, sub2]) ctx mem = 
     let (outcome, testctx, testmem) = eval test ctx mem
