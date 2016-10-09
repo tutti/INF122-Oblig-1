@@ -5,6 +5,8 @@ import Test.HUnit
 -- Her kan du legge til dine egne tester.
 
 mineEgeneTester = TestList [
+  TestCase (assertEqual "First-order function" (Number 35) (run "set a lambda x (lambda y ((x, y)*)); set mulfive a (5); set thirtyfive mulfive (7); thirtyfive;")),
+  TestCase (assertEqual "Power function" (Number 65536) (run "set pow lambda x (set temppow lambda y (case (y, 1)== -> x, case otherwise -> (x, temppow ((y, 1)-))*.)); set powtwo pow (2); powtwo (16);")),
   TestCase (assertEqual "Fibonacci 5 - 5" (Number 5) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (5);")),
   TestCase (assertEqual "Fibonacci 10 - 55" (Number 55) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (10);")),
   TestCase (assertEqual "Fibonacci 15 - 610" (Number 610) (run "set f lambda x (case (x, 1)== -> 1, case (x, 2)== -> 1, case otherwise -> (f ((x, 1)-), f ((x, 2)-))+.); f (15);"))]

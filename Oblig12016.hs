@@ -110,10 +110,11 @@ tokenize ('.':xs) = ".":tokenize xs
 tokenize (s:xs)
     | isDigit s = (takeWhile isDigit (s:xs)):tokenize (dropWhile isDigit xs)
     | isChar s = (takeWhile isChar (s:xs)):tokenize (dropWhile isChar xs)
-    | otherwise = error "Syntax error."
+    | otherwise = error ("Syntax error: Unexpected "++[s])
 
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = error "Nothing left to parse."
+parseBlock (";":s) = error "Expected block, got semicolon (loose semicolons are not allowed)."
 parseBlock s =
     let (ast, str) = parseExpr s
     in
@@ -124,10 +125,10 @@ parseBlock s =
             then
                 let ((Block newast), newstr) = parseBlock $ tail str
                 in (Block (ast:newast), newstr)
-            else error "Block must end in semicolon."
+            else error ("Syntax error: Expected ';', got '"++(head str)++"'.")
 
 parseExpr :: [String] -> (Ast, [String])
-parseExpr [] = error "Malformed expression."
+parseExpr [] = error "Syntax error: Expected expression, got nothing."
 parseExpr s
     | head s == "(" = parseApp s
     | isDigit (head (head s)) = (Number (read $ head s), tail s)
@@ -146,26 +147,27 @@ parseApp :: [String] -> (Ast, [String])
 parseApp ("(":s) = 
     let (expr1ast, expr1str) = parseExpr s
     in
-        if length expr1str == 0 then error "Malformed app string." else
+        if length expr1str == 0 then error "Syntax error: Unexpected end of line." else
         if head expr1str == ","
         then
             let (expr2ast, expr2str) = parseExpr (tail expr1str)
             in 
-                if length expr2str == 0 then error "Malformed app string." else
+                if length expr2str == 0 then error "Syntax error: Unexpected end of line." else
                 if head expr2str == ")"
                 then
                     let (funcast, funcstr) = parseFunc(tail expr2str)
                     in (App funcast [expr1ast, expr2ast], funcstr)
-                else error "Malformed app string."
-        else error "Malformed app string."
-parseApp _ = error "Malformed app string."
+                else error ("Syntax error: Expected ')', got '"++(head expr2str)++"'.")
+        else error ("Syntax error: Expected ',', got '"++(head expr1str)++"'.")
+parseApp _ = error "Syntax error: Expected calculation."
 
 parseFunc :: [String] -> (Ast, [String])
 parseFunc ("+":s) = (Name "+", s)
 parseFunc ("-":s) = (Name "-", s)
 parseFunc ("*":s) = (Name "*", s)
 parseFunc ("/":s) = (Name "/", s)
-parseFunc _ = error "Malformed function."
+parseFunc (s:xs) = error ("Syntax error: Unrecognised symbol '"++s++"'.")
+parseFunc [] = error ("Syntax error: Unexpected end of line.")
 
 parseBool :: [String] -> (Ast, [String])
 parseBool ("(":s) = 
@@ -182,10 +184,11 @@ parseBool ("(":s) =
                         else if op == "!=" then (Bool (Name "!=") expr1ast expr2ast, rest)
                         else if op == "<" then (Bool (Name "<") expr1ast expr2ast, rest)
                         else if op == ">" then (Bool (Name ">") expr1ast expr2ast, rest)
-                        else error "Malformed boolean test."
-                else error "Malformed boolean test."
-        else error "Malformed boolean test."
-parseBool _ = error "Malformed boolean test."
+                        else error ("Syntax error: Unrecognised symbol '"++op++"'.")
+                else error ("Syntax error: Expected ')', got '"++(head expr2str)++"'.")
+        else error ("Syntax error: Expected ',', got '"++head(expr1str)++"'.")
+parseBool (s:xs) = error ("Syntax error: Unrecognised symbol '"++s++"'.")
+parseBool [] = error ("Syntax error: Unexpected end of line.")
 
 parseCase :: [String] -> (Ast, [String])
 parseCase ("case":"otherwise":"->":s) =
@@ -193,7 +196,7 @@ parseCase ("case":"otherwise":"->":s) =
     in
         if head exprstr == "." then
             (Case Default [exprast], tail exprstr)
-        else error "Malformed case string."
+        else error ("Syntax error: Expected '.', got '"++(head exprstr)++"'.")
 parseCase ("case":s) =
     let (boolast, boolstr) = parseBool s
     in
@@ -203,21 +206,21 @@ parseCase ("case":s) =
                 if head exprstr == "," then
                     let (caseast, casestr) = parseCase $ tail exprstr
                     in (Case boolast [exprast, caseast], casestr)
-                else error "Malformed case string."
-        else error "Malformed case string."
-parseCase _ = error "Malformed case string."
+                else error ("Syntax error: Expected ',', got '"++(head exprstr)++"'.")
+        else error ("Syntax error: Expected '->', got '"++(head boolstr)++"'.")
+parseCase _ = error "Syntax error: Unknown error." -- Should not be possible to get to this
 
 parseSet :: [String] -> (Ast, [String])
 parseSet ("set":var:s) =
     let (exprast, exprstr) = parseExpr s
     in (Set var exprast, exprstr)
-parseSet _ = error "Malformed set expression."
+parseSet _ = error "Syntax error: Unknown error." -- Should not be possible to get to this
 
 parseVar :: [String] -> (Ast, [String])
 parseVar (s:xs)
     | isCharString s = (Name s, xs)
-    | otherwise = error "Invalid variable name."
-parseVar [] = error "Invalid variable name."
+    | otherwise = error ("Syntax error: Invalid variable name '"++s++"'.")
+parseVar [] = error "Syntax error: Unknown error."
 
 parseLambda :: [String] -> (Ast, [String])
 parseLambda ("lambda":name:"(":s) = 
@@ -225,8 +228,8 @@ parseLambda ("lambda":name:"(":s) =
     in
         if head exprstr == ")"
         then (Lambda name exprast, tail exprstr)
-        else error "Malformed lambda string."
-parseLambda _ = error "Malformed lambda string."
+        else error ("Syntax error: Expected ')', got '"++(head exprstr)++"'.")
+parseLambda _ = error "Syntax error: Unknown error."
 
 parseCall :: [String] -> (Ast, [String])
 parseCall ("(":s) =
@@ -234,12 +237,16 @@ parseCall ("(":s) =
     in
         if head exprstr == ")"
         then (exprast, tail exprstr)
-        else error "Malformed call."
-parseCall _ = error "Malformed call."
+        else error ("Syntax error: Expected ')', got '"++(head exprstr)++"'.")
+parseCall _ = error "Syntax error: Unknown error."
 
 parse :: String -> Ast
 parse "" = error "Nothing to parse."
 parse s = let slist = tokenize s in let (ast, trash) = parseBlock slist in ast
+
+isFunction :: Ast -> Bool
+isFunction (Function f c m) = True
+isFunction _ = False
 
 eval :: Ast -> Context -> Memory -> (Ast, Context, Memory)
 eval (Number n) ctx mem = (Number n, ctx, mem)
@@ -248,16 +255,26 @@ eval (Block (blc:more)) ctx mem =
     let (blcast, blcctx, blcmem) = eval blc ctx mem
     in eval (Block more) blcctx blcmem
 eval (App (Name func) [(Name var)]) ctx mem =
-    let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem -- Look up the Function by the Name
-    in let inctx = copyRef ctx var funcctx varname -- Create a copy reference to the reference variable
-    in let (out, outctx, outmem) = eval funcast inctx mem -- Run the lambda, get the result and updated memory
-    in (out, ctx, outmem) -- Discard the updated context
+    let (testast, _, _) = eval (Name func) ctx mem
+    in
+        if isFunction testast then
+            --let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem -- Look up the Function by the Name
+            let (Function varname funcast funcctx) = testast
+            in let inctx = copyRef ctx var funcctx varname -- Create a copy reference to the reference variable
+            in let (out, outctx, outmem) = eval funcast inctx mem -- Run the lambda, get the result and updated memory
+            in (out, ctx, outmem) -- Discard the updated context
+        else error ""
 eval (App (Name func) [ast]) ctx mem =
-    let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem
-    in let (exprast, exprctx, exprmem) = eval ast ctx mem -- Evaluate the pass-by-value
-    in let (inctx, inmem) = addVar funcctx exprmem varname exprast -- Force creation of a new variable by this name
-    in let (out, outctx, outmem) = eval funcast inctx inmem
-    in (out, ctx, outmem)
+    let (testast, _, _) = eval (Name func) ctx mem
+    in
+        if isFunction testast then
+            --let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem
+            let (Function varname funcast funcctx) = testast
+            in let (exprast, exprctx, exprmem) = eval ast ctx mem -- Evaluate the pass-by-value
+            in let (inctx, inmem) = addVar funcctx exprmem varname exprast -- Force creation of a new variable by this name
+            in let (out, outctx, outmem) = eval funcast inctx inmem
+            in (out, ctx, outmem)
+        else error ""
 eval (App (Name func) [sub1, sub2]) ctx mem =
     let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
     in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
@@ -266,7 +283,7 @@ eval (App (Name func) [sub1, sub2]) ctx mem =
         else if func == "-" then (Number (num1 - num2), sub2ctx, sub2mem)
         else if func == "*" then (Number (num1 * num2), sub2ctx, sub2mem)
         else if func == "/" then (Number (num1 `div` num2), sub2ctx, sub2mem)
-        else error "Bad AST"
+        else error "Program error: Unknown operator."
 eval (App (Lambda lbdname lbdast) [(Name var)]) ctx mem = 
     let copyctx = copyRef ctx var ctx lbdname -- Create a copy reference to the reference variable
     in let (out, outctx, outmem) = eval lbdast copyctx mem-- Run the lambda, keep the modified memory but discard the context
@@ -284,7 +301,7 @@ eval (Bool (Name test) sub1 sub2) ctx mem =
         else if test == "!=" then if num1 == num2 then (Number 0, sub2ctx, sub2mem) else (Number 1, sub2ctx, sub2mem)
         else if test == "<" then if num1 < num2 then (Number 1, sub2ctx, sub2mem) else (Number 0, sub2ctx, sub2mem)
         else if test == ">" then if num1 > num2 then (Number 1, sub2ctx, sub2mem) else (Number 0, sub2ctx, sub2mem)
-        else error "Bad AST"
+        else error "Program error: Unknown operator."
 eval (Case Default [sub]) ctx mem = eval sub ctx mem
 eval (Case test [sub1, sub2]) ctx mem = 
     let (outcome, testctx, testmem) = eval test ctx mem
@@ -297,13 +314,12 @@ eval (Set str ast) ctx mem =
 eval (Name name) ctx mem =
     let val = getVar ctx mem name
     in
-        if val == Nothing then error ("Variable not set: "++name)
+        if val == Nothing then error ("Program error: Variable not set: "++name++".")
         else
             let (Just jval) = val
             in (jval, ctx, mem)
 eval (Lambda vname lambdaast) ctx mem = (Function vname lambdaast ctx, ctx, mem)
-
-eval ast ctx mem = error "Bad AST"
+eval ast ctx mem = error "Program error: Unknown error."
 
 run :: String -> Ast
 run s = let (ast, ctx, mem) = eval (parse s) emptyCtx emptyMem in ast
