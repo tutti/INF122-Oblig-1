@@ -110,7 +110,7 @@ tokenize ('.':xs) = ".":tokenize xs
 tokenize (s:xs)
     | isDigit s = (takeWhile isDigit (s:xs)):tokenize (dropWhile isDigit xs)
     | isChar s = (takeWhile isChar (s:xs)):tokenize (dropWhile isChar xs)
-    | otherwise = error ("Syntax error: Unexpected "++[s])
+    | otherwise = error ("Syntax error: Unexpected '"++[s]++"'.")
 
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = error "Nothing left to parse."
@@ -127,6 +127,14 @@ parseBlock s =
                 in (Block (ast:newast), newstr)
             else error ("Syntax error: Expected ';', got '"++(head str)++"'.")
 
+callParseHelper :: Ast -> [String] -> (Ast, [String])
+callParseHelper ast str
+    | head str == "(" =
+        let (newast, newstr) = parseCall str
+        in let cphast = (App ast [newast])
+        in callParseHelper cphast newstr
+    | otherwise = (ast, str)
+
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = error "Syntax error: Expected expression, got nothing."
 parseExpr s
@@ -136,12 +144,7 @@ parseExpr s
     | head s == "set" = parseSet s
     | otherwise =
         let (ast, xs) = if head s == "lambda" then parseLambda s else parseVar s
-        in
-            if head xs == "("
-                then
-                    let (callast, callxs) = parseCall xs
-                    in (App ast [callast], callxs)
-                else (ast, xs)
+        in callParseHelper ast xs
 
 parseApp :: [String] -> (Ast, [String])
 parseApp ("(":s) = 
@@ -258,23 +261,21 @@ eval (App (Name func) [(Name var)]) ctx mem =
     let (testast, _, _) = eval (Name func) ctx mem
     in
         if isFunction testast then
-            --let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem -- Look up the Function by the Name
             let (Function varname funcast funcctx) = testast
             in let inctx = copyRef ctx var funcctx varname -- Create a copy reference to the reference variable
             in let (out, outctx, outmem) = eval funcast inctx mem -- Run the lambda, get the result and updated memory
             in (out, ctx, outmem) -- Discard the updated context
-        else error ""
+        else error ("Program error: '"++func++"' is not a lambda expression.")
 eval (App (Name func) [ast]) ctx mem =
     let (testast, _, _) = eval (Name func) ctx mem
     in
         if isFunction testast then
-            --let ((Function varname funcast funcctx), _, _) = eval (Name func) ctx mem
             let (Function varname funcast funcctx) = testast
             in let (exprast, exprctx, exprmem) = eval ast ctx mem -- Evaluate the pass-by-value
             in let (inctx, inmem) = addVar funcctx exprmem varname exprast -- Force creation of a new variable by this name
             in let (out, outctx, outmem) = eval funcast inctx inmem
             in (out, ctx, outmem)
-        else error ""
+        else error ("Program error: '"++func++"' is not a lambda expression.")
 eval (App (Name func) [sub1, sub2]) ctx mem =
     let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
     in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
@@ -286,13 +287,19 @@ eval (App (Name func) [sub1, sub2]) ctx mem =
         else error "Program error: Unknown operator."
 eval (App (Lambda lbdname lbdast) [(Name var)]) ctx mem = 
     let copyctx = copyRef ctx var ctx lbdname -- Create a copy reference to the reference variable
-    in let (out, outctx, outmem) = eval lbdast copyctx mem-- Run the lambda, keep the modified memory but discard the context
+    in let (out, outctx, outmem) = eval lbdast copyctx mem -- Run the lambda, keep the modified memory but discard the context
     in (out, ctx, outmem)
 eval (App (Lambda lbdname lbdast) [appast]) ctx mem = 
     let (exprast, exprctx, exprmem) = eval appast ctx mem -- Evaluate the pass-by-value
     in let (copyctx, copymem) = addVar exprctx exprmem lbdname exprast -- Force creation of a new variable by this name
     in let (out, outctx, outmem) = eval lbdast copyctx copymem -- Run the lambda, discarding the new context but keeping the result and memory
     in (out, exprctx, outmem)
+eval (App (Function varname funcast funcctx) [appast]) ctx mem =
+    let (out, outctx, outmem) = eval (App (Lambda varname funcast) [appast]) funcctx mem
+    in (out, ctx, outmem)
+eval (App (App subapp subast) [appast]) ctx mem =
+    let (exprast, exprctx, exprmem) = eval (App subapp subast) ctx mem
+    in eval (App exprast [appast]) ctx exprmem
 eval (Bool (Name test) sub1 sub2) ctx mem =
     let ((Number num1), sub1ctx, sub1mem) = eval sub1 ctx mem
     in let ((Number num2), sub2ctx, sub2mem) = eval sub2 sub1ctx sub1mem
